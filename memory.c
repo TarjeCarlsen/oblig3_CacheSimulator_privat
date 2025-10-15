@@ -14,20 +14,20 @@
 static unsigned long instr_count;
 
 typedef enum{
-  WRITE_THROUGH,
-  WRITE_BACK,
+  WRITE_THROUGH, //0
+  WRITE_BACK, //1
 } WritePolicies;
 
 typedef enum{
-  RANDOM,
-  LRU,
-  TEMPORAL_SPATIAL,
+  RANDOM, //0
+  LRU, // 1
+  TEMPORAL_SPATIAL, //2
 }ReplacementPolicy;
 
 typedef enum{
-  NINE,
-  INCLUSIVE,
-  EXCLUSIVE,
+  NINE, // 0
+  INCLUSIVE, //1
+  EXCLUSIVE, // 2
 }InclusivePolicy;
 
 typedef struct { // size, associativity, line size, write back policy should be easily changeable.
@@ -52,7 +52,7 @@ Cache *L2;
 #define L1D_bus_width 32
 #define L1D_write_policy WRITE_BACK
 
-#define L1I_size 32000 
+#define L1I_size 32000 // 32kb
 #define L1I_associativity 8
 #define L1I_replacement_policy RANDOM
 #define L1I_line_size 64
@@ -90,6 +90,14 @@ void memory_init(void)
   instr_count = 0;
 }
 
+void CacheLookup(Cache currentCache, uint64_t adress){
+
+}
+
+void CacheInsert(Cache currentCache, uint64_t adress){
+
+}
+
 void memory_fetch(uint64_t address, data_t *data)
 {
 /* PSEUDO
@@ -107,9 +115,6 @@ void memory_fetch(uint64_t address, data_t *data)
       L2_misses++;
       cache_insert(L2, adress)
       cachce_insert(L1I, adress)
-
-
-
 */
   printf("data = %p \n", (void*)data);
   printf("memory: fetch 0x%" PRIx64 "\n", address);
