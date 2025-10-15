@@ -85,7 +85,6 @@ void memory_init(void)
 
   printf("initializing memory\n");
   
-  /* Initialize memory subsystem here. */
 
   instr_count = 0;
 }
