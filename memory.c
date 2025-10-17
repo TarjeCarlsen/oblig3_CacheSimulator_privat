@@ -89,31 +89,31 @@ Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1D_size 3000              // 32kb
+#define L1D_size 3000              // 3kb
 #define L1D_associativity 1        // set to 1 for testing direct mapping
 #define L1D_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1D_replacement_policy RANDOM
 #define L1D_line_size 64
 #define L1D_bus_width 32
-#define L1D_write_policy WRITE_BACK
+#define L1D_write_policy WRITE_THROUGH
 
-#define L1I_size 32000 // 32kb
+#define L1I_size 3000 // 3kb
 #define L1I_associativity 1
 #define L1I_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1I_replacement_policy RANDOM
 #define L1I_line_size 64
 #define L1I_bus_width 32
-#define L1I_write_policy WRITE_BACK
+#define L1I_write_policy WRITE_THROUGH
 
-#define L2_size 512000 // 512kb
+#define L2_size 20000 // 20kb
 #define L2_associativity 1
 #define L2_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
-#define L2_write_policy WRITE_BACK
+#define L2_write_policy WRITE_THROUGH
 #define L2_line_size 64
 #define L2_replacement_policy RANDOM
 #define L2_bus_width 32
 
-void print_bits(uint64_t value, int bits)
+void print_bits(uint64_t value, int bits) // Print funksjon hentet fra gpt for feilsøking
 {
   for (int i = bits - 1; i >= 0; i--)
   {
@@ -177,14 +177,15 @@ void memory_init(void)
   L1I = (Cache *)malloc(sizeof(Cache));
   L2 = (Cache *)malloc(sizeof(Cache));
 
+  // initialization for caches without having to hardcode each new cache added:
   cache_initialization(L1I, L1I_size, L1I_associativity,
                        L1I_mapping, L1I_replacement_policy,
                        L1I_line_size, L1I_bus_width, L1I_write_policy);
-  
+
   cache_initialization(L1D, L1D_size, L1D_associativity,
                        L1D_mapping, L1D_replacement_policy,
                        L1D_line_size, L1D_bus_width, L1D_write_policy);
-  
+
   cache_initialization(L2, L2_size, L2_associativity,
                        L2_mapping, L2_replacement_policy,
                        L2_line_size, L2_bus_width, L2_write_policy);
@@ -368,12 +369,12 @@ void memory_read(uint64_t address, data_t *data)
       CacheInsert(L1D, address);
     }
   }
-  printf("L1D hits = %d miss = %d\n", L1D->hit_miss.read_miss, L1D->hit_miss.read_miss);
-  printf("L1D hits = %d miss = %d\n", L2->hit_miss.read_miss, L2->hit_miss.read_miss);
+  printf("L1D hits = %d miss = %d\n", L1D->hit_miss.read_hit, L1D->hit_miss.read_miss);
+  printf("L1D hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
   printf("memory: read 0x%" PRIx64 "\n", address);
   if (data)
-    *data = (data_t)0;
-
+  *data = (data_t)0;
+  
   instr_count++;
 }
 
@@ -383,19 +384,54 @@ void memory_write(uint64_t address, data_t *data)
   Write through : Data written to L1 has to then aswell be written to L2
   Write back: Data modified will be written to L1 and marked as dirty. When evicted from L1 the data
   is then written to the next level, L2 and again marked as dirty.
-
+  
   */
-  /*PSEUDO
-  //WITH WRITETHOUGH POLICY, CAN BE REDONE TO MAKE CLEANER, FOR EXAMPLE MOVE TO FUNCTION
-  if(L1D->write_policy == Write_through){
-    if(cacheLookup(L1D, address)){
-      L1D->Hit++;
-      }else{
-        L1D->Miss++;
-        }
-    }
-
-  */
+ /*PSEUDO
+ //WITH WRITETHOUGH POLICY, CAN BE REDONE TO MAKE CLEANER, FOR EXAMPLE MOVE TO FUNCTION
+ 
+ if(L1D->write_policy == Write_through)
+ {
+  if(cacheLookup(L1D, address)){
+    L1D->Hit++;
+    cacheInsert(L2,adress)
+    }else{
+      L1D->Miss++;
+      if(cacheLookup(L2, address)){
+        L2->Hit++;
+        cacheInsert(L1D,address);
+        }else{
+          L2->Miss++;
+          cacheInsert(L1D,address);
+          cacheInsert(L2,address);
+          }
+          }
+          }
+          
+          //WITH WRITEBACK POLICY:
+          */
+         
+         // --------- WRITE THROUGH POLICY -------- //
+         printf("inside \n");
+         if(L1D->write_policy == WRITE_THROUGH){
+           if(CacheLookup(L1D, address)){
+             L1D->hit_miss.write_hit++;
+             CacheInsert(L2,address);
+            }else{
+              L1D->hit_miss.write_miss++;
+              if(CacheLookup(L2,address)){
+                L2->hit_miss.write_hit++;
+                CacheInsert(L1D,address);
+              }else{
+                L2->hit_miss.write_miss++;
+                CacheInsert(L2,address);
+                CacheInsert(L1D,address);
+              }
+            }
+          }
+          
+    printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
+    printf("L1D write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
+      // --------- WRITE BACK POLICY -------- //
   printf("memory: write 0x%" PRIx64 "\n", address);
 
   instr_count++;
