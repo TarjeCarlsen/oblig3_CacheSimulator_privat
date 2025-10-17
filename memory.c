@@ -48,9 +48,16 @@ typedef struct // defines the "blocks". Represented associative amount of lines
   CacheLine *lines; 
 }CacheSet;
 
+typedef struct{
+  uint64_t tag;
+  uint64_t indexx; // Intentionally mispelled, index is a legacy function
+  uint64_t offset;
+}AdressParts;
+
 typedef struct { // size, associativity, line size, write back policy should be easily changeable.
   int size; // number of sets = cache size / (line_size * associativity) //  depends on the associativity
   int associativity;
+  int mapping;
   int inclusive;
   ReplacementPolicy replacement_policy;
   int line_width;
@@ -64,16 +71,14 @@ typedef struct { // size, associativity, line size, write back policy should be 
 }Cache;
 
 
-
-
-
 Cache *L1D;
 Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1D_size 32000 //32kb
+#define L1D_size 3000 //32kb
 #define L1D_associativity 1 // set to 1 for testing direct mapping
+#define L1D_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1D_replacement_policy RANDOM
 #define L1D_line_size 64
 #define L1D_bus_width 32
@@ -81,6 +86,7 @@ Cache *L2;
 
 #define L1I_size 32000 // 32kb
 #define L1I_associativity 8
+#define L1I_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1I_replacement_policy RANDOM
 #define L1I_line_size 64
 #define L1I_bus_width 32
@@ -88,17 +94,42 @@ Cache *L2;
 
 #define L2_size 512000 //512kb
 #define L2_associativity 8
+#define L2_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L2_write_policy WRITE_BACK
 #define L2_line_size 64
 #define L2_replacement_policy RANDOM
 #define L2_bus_width 32
 
+void print_bits(uint64_t value, int bits)
+{
+    for (int i = bits - 1; i >= 0; i--) {
+        printf("%d", (int)((value >> i) & 1ULL));  // cast fixes warning
+        if (i % 4 == 0) printf(" ");               // optional spacing
+    }
+    printf("\n");
+}
+
 int calculate_number_sets(Cache *currentCache){
   int result = 0;
-  if(currentCache->associativity == DIRECT_MAPPING){
-    result = currentCache->line_size;
+  if(currentCache->mapping == DIRECT_MAPPING){
+    result = currentCache->size / (currentCache->line_size * currentCache->associativity);
     return result;
   }
+  return 0;
+}
+
+void allocateDirectMapped(Cache *currentCache){
+  for (size_t i = 0; i < currentCache->amount_sets; i++)
+  {
+    currentCache->sets[i].lines = malloc(sizeof(CacheLine) * currentCache->associativity);
+    for (size_t j = 0; j < currentCache->associativity; j++)
+    {
+      currentCache->sets[i].lines[j].valid = 0;
+      currentCache->sets[i].lines[j].tag = 0;
+    }
+    
+  }
+  
 }
 
 void memory_init(void)
@@ -107,25 +138,54 @@ void memory_init(void)
   L1I = (Cache*)malloc(sizeof(Cache));
   L2 = (Cache*)malloc(sizeof(Cache));
 
-  L1D->size = 0;
-  L1D->associativity = 0;
+  L1D->size = L1D_size;
+  L1D->associativity = L1D_associativity;
+  L1D->mapping = L1D_mapping;
   L1D->inclusive;
   L1D->replacement_policy = L1D_replacement_policy;
   L1D->line_size = L1D_line_size;
   L1D->bus_width = L1I_bus_width;
   L1D->write_policy = L1D_write_policy;
   L1D->miss = 0;
+  L1D->hit = 0;
   L1D->amount_sets = calculate_number_sets(L1D);
-
-
-  printf("initializing memory\n");
+  L1D->sets = malloc(sizeof(CacheSet) * L1D->amount_sets);
   
+  L1I->size = L1I_size;
+  L1I->associativity = L1I_associativity;
+  L1I->mapping = L1I_mapping;
+  L1I->inclusive;
+  L1I->replacement_policy = L1I_replacement_policy;
+  L1I->line_size = L1I_line_size;
+  L1I->bus_width = L1I_bus_width;
+  L1I->write_policy = L1I_write_policy;
+  L1I->miss = 0;
+  L1I->hit = 0;
+  L1I->amount_sets = calculate_number_sets(L1I);
+  L1I->sets = malloc(sizeof(CacheSet) * L1I->amount_sets);
+  
+  L2->size = L2_size;
+  L2->associativity = L2_associativity;
+  L2->mapping = L2_mapping;
+  L2->inclusive;
+  L2->replacement_policy = L2_replacement_policy;
+  L2->line_size = L2_line_size;
+  L2->bus_width = L2_bus_width;
+  L2->write_policy = L2_write_policy;
+  L2->miss = 0;
+  L2->hit = 0;
+  L2->amount_sets = calculate_number_sets(L2);
+  L2->sets = malloc(sizeof(CacheSet) * L2->amount_sets);
+  
+  if(L1D_mapping == DIRECT_MAPPING)allocateDirectMapped(L1D);
+  if(L1I_mapping == DIRECT_MAPPING)allocateDirectMapped(L1I);
+  if(L2_mapping == DIRECT_MAPPING)allocateDirectMapped(L2);
 
   instr_count = 0;
 }
 
-int CacheLookup(Cache *currentCache, uint64_t adress){
-  /*
+AdressParts GetTagIndexOffset(Cache *currentCache, uint64_t adress){
+    /*
   For finding LSB(least significant bits) use this formula:
   masked_bits = ((1<<N)-1)
   This will give the N amount of bits as 1's so that together with original adress will output
@@ -142,64 +202,152 @@ int CacheLookup(Cache *currentCache, uint64_t adress){
   masked_adress = ((1<<2)-1) // this gives us 0000 0000 0011
   extracted_2_LSB = masked_adress & shifted_adress // this gives us 0000 0000 0001
   which then is the extracted bits at location 5 and 6.
+
+  PSEUDO direct mapping associativity:        results:
+  Offset = log2(block_size)       -              6
+  index = log2(amount_of_lines)   -              6
+  tag = adressbits - (offset + index) // aka remaining bits        
+
+  tag_bit = ((1<<12)-1) & adress      - Gives us the tag bits of the adress
   */
-  int offsetBits = log2(currentCache->line_size); // expected value 6 from line_size = 64
-  printf("offset bit = %d\n", offsetBits);
-  int index_bits = log2(currentCache->amount_sets); //expected value 6 from sets = linesize = 64
+  // calculating offset
+    AdressParts tag_index_offset;
+
+    int offsetBits = log2(currentCache->line_size);
+    uint64_t offsetMasked = ((1ULL<<offsetBits)-1);
+    tag_index_offset.offset = adress & offsetMasked;
+    // printf("offset = %llu\n", offset);
+
+  // Calculating index
+    int indexBits = log2(currentCache->amount_sets);
+    uint64_t indexMasked = ((1ULL<<indexBits) -1 );
+    tag_index_offset.indexx = (adress >> offsetBits) & indexMasked;
+
+    //Calculate tag
+    tag_index_offset.tag = adress>>(indexBits + offsetBits);
+  return tag_index_offset;
+}
+
+int CacheLookup(Cache *currentCache, uint64_t adress){
+  // calculating offset
+  //   int offsetBits = log2(currentCache->line_size);
+  //   uint64_t offsetMasked = ((1ULL<<offsetBits)-1);
+  //   uint64_t offset = adress & offsetMasked;
+  //   // printf("offset = %llu\n", offset);
+
+  // // Calculating index
+  //   int indexBits = log2(currentCache->amount_sets);
+  //   uint64_t indexMasked = ((1ULL<<indexBits) -1 );
+  //   uint64_t index = (adress >> offsetBits) & indexMasked;
+  //   printf("indexmasked = %llu index = %llu\n", indexMasked , index);
+
+  //   //Calculate tag
+  //   int tag = adress>>(indexBits + offsetBits);
+  AdressParts tag_index_offset = GetTagIndexOffset(currentCache,adress);
+
+    //lookup for directmapping
+    if(currentCache->mapping == DIRECT_MAPPING){
+      CacheLine *line = &currentCache->sets[tag_index_offset.indexx].lines[0];
+
+      if(line->valid == 1 && line->tag == tag_index_offset.tag){
+        return 1;
+      }else{
+        return 0;
+      }
+    }
+
+
+  // int offsetBits = log2(currentCache->line_size); // expected value 6 from line_size = 64
+  // int masked_bits = ((1<<offsetBits)-1); // expected value 63, binary value 111111
+  // printf("masked bits = %d\n", masked_bits);
+  // int offsetResult = adress & masked_bits;
+  // printf("offsetresult = %d\n", offsetResult);
+  // printf("offset bit = %d\n", offsetBits);
+  // int index_bits = log2(currentCache->amount_sets); //expected value 6 from sets = linesize = 64
+  // int tag_bits = currentCache->line_size - (offsetBits + index_bits); // 64-12 = 52
+  // printf("tag bits = %d\n", tag_bits);
+
+  // CacheSet *set = &currentCache->sets[index_bits];
+  
+  // printf("cache line tag = %d\n", currentCache->sets->lines[52].tag);
 
   return 0; // returns 0 for no found adress with valid bit 1, can changed to returning the valid bit
 }
 
-void CacheInsert(Cache currentCache, uint64_t adress){
+void CacheInsert(Cache *currentCache, uint64_t adress){
+  AdressParts tag_index_off = GetTagIndexOffset(currentCache,adress);
 
+  //insert for direct mapping
+  if(currentCache->mapping == DIRECT_MAPPING){
+    CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
+
+    line->valid = 1;
+    line->tag = tag_index_off.tag;
+    printf("inserted\n");
+  }
 }
 
 void memory_fetch(uint64_t address, data_t *data)
 {
-  CacheLookup(L1D, address);
-/* PSEUDO
+  /* PSEUDO
   CHECK IF L1I HITS OR MISSES
-  if(cache_lookup(L1I, adress) && cache_tag == valid)
-    L1I->hits++;
-    else
-      L1I->miss++;
-
+  if(cache_lookup(L1I, adress))
+  L1I->hits++;
+  else
+  L1I->miss++;
+  
   CHECK IF L2 HITS OR MISSES
-  if(cache_lookup(L2,adress)&& cache_tag == valid)
-    L2->hits++;
-    cache->insert(L1I, adress)
-    else
-      L2->misses++;
-      cache_insert(L2, adress)
-      cachce_insert(L1I, adress)
-*/
-  printf("data = %p \n", (void*)data);
-  printf("memory: fetch 0x%" PRIx64 "\n", address);
-  if (data)
-    *data = (data_t)0;
+  if(cache_lookup(L2,adress))
+  L2->hits++;
+  cache->insert(L1I, adress)
+  else
+  L2->misses++;
+  cache_insert(L2, adress)
+  cachce_insert(L1I, adress)
+  */
+  if(CacheLookup(L1I,address)){
+    L1I->hit++;
+    printf("L1I Hit ++\n");
+  }else{
+    printf("L1I miss++\n");
+    L1I->miss++;
+    if(CacheLookup(L2, address)){
+      L2->hit++;
+      // CacheInsert(L1I) // must insert to L1I on hit
+    }else{
+      printf("inside l2 miss\n");
+      L2->miss++;
+      CacheInsert(L2,address); // must insert to L2 and L1I on miss
+      // CacheInsert(L1I) // must insert to L2 and L1I on miss
+    }
+  }
 
-  instr_count++;
+ printf("data = %p \n", (void*)data);
+ printf("memory: fetch 0x%" PRIx64 "\n", address);
+ if (data)
+ *data = (data_t)0;
+ 
+//  CacheLookup(L1D, address);
+ instr_count++;
 }
 
 void memory_read(uint64_t address, data_t *data)
 {
   /* PSEUDO
   CHECK IF L1I HITS OR MISSES
-  if(cache_lookup(L1D, adress)&& cache_tag == valid)
+  if(cache_lookup(L1D, adress))
     L1I->hits++;
     else
       L1I->miss++;
 
   CHECK IF L2 HITS OR MISSES
-  if(cache_lookup(L2,adress) && cache_tag == valid)
+  if(cache_lookup(L2,adress))
     L2->hits++;
     cache_insert(L1D, adress)
     else
       L2->misses++;
       cache_insert(L2, adress)
       cachce_insert(L1D, adress)
-  
-  
   */
   printf("memory: read 0x%" PRIx64 "\n", address);
   if (data)
@@ -217,12 +365,7 @@ void memory_write(uint64_t address, data_t *data)
   
   */
   /*PSEUDO
-  if(cache_lookup(L1D, adress))
-    if(L1D->write_policy == write back)
-      L1D_write_hits++;
-      MarkDirty(L1D,adress);
-    else
-      L1_write_miss++;
+
   
   */
   printf("memory: write 0x%" PRIx64 "\n", address);
