@@ -1,0 +1,34 @@
+# --- Instruction fetch test ---
+I  04000000,4     # Instruction read miss (first time loading this instruction block, 64 B line)
+I  04000000,4     # Instruction read hit  (same instruction, same line)
+I  04000004,4     # Instruction read hit  (still within same 64 B cache block)
+
+# --- Data load tests ---
+L  10000000,8     # Data read miss (first access to this 64 B-aligned line)
+L  10000000,8     # Data read hit  (same cache line)
+
+# --- Data store tests ---
+S  10000000,8     # Data write hit  (already cached from above)
+S  10000008,8     # Data write hit  (same 64 B line, still cached)
+
+# --- Conflict miss test ---
+# Accessing two different addresses that map to the same cache index (direct-mapped)
+L  10001000,8     # Data read miss (new address, same index → evicts old line)
+L  10000000,8     # Data read miss (old line was evicted → miss again)
+
+# --- Capacity/Replacement test ---
+# Touch more unique blocks than fit in cache to force replacement
+L  20000000,8     # Data read miss (new block)
+L  30000000,8     # Data read miss (new block)
+L  40000000,8     # Data read miss (forces replacement if cache is small)
+
+# --- Re-access after replacement ---
+L  10001000,8     # Data read miss (previously evicted)
+L  20000000,8     # Data read hit  (if still cached)
+S  20000000,8     # Data write hit (write to cached line)
+L  30000000,8     # Data read hit  (depending on replacement policy)
+I  04000000,4     # Instruction read hit (still cached in L1I)
+
+# --- Force memory write miss ---
+S 10000000,8      # Data write miss
+S 10001000,8

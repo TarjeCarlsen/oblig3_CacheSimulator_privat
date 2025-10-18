@@ -22,8 +22,8 @@ from struct import pack
 
 def main():
     fmt = "<QBBBBL"
-    with open("logfile", "r") as logfile:
-        with open("trace.tr", "wb") as tracefile:
+    with open("logfile_big", "r") as logfile:
+        with open("trace_big.tr", "wb") as tracefile:
             for line in logfile:
                 if line.startswith("=="):  # Comment
                     continue

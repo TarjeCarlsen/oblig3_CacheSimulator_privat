@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 static unsigned long instr_count;
 
@@ -40,6 +41,11 @@ typedef enum
   ASSOCIATIVE_MAPPING,
   SET_ASSOCIATIVE_MAPPING,
 } Associativity;
+
+typedef enum{
+  DIRTY, // 0
+  NOT_DIRTY, // 1
+}Dirty;
 
 typedef struct // Defines what each line holds. A single cache entry
 {
@@ -77,6 +83,7 @@ typedef struct
   ReplacementPolicy replacement_policy;
   int line_width;
   int line_size;
+  int amount_lines_per_set;
   int bus_width;
   Hit_Miss hit_miss;
   int amount_sets;
@@ -95,7 +102,7 @@ Cache *L2;
 #define L1D_replacement_policy RANDOM
 #define L1D_line_size 64
 #define L1D_bus_width 32
-#define L1D_write_policy WRITE_THROUGH
+#define L1D_write_policy WRITE_BACK
 
 #define L1I_size 3000 // 3kb
 #define L1I_associativity 1
@@ -103,12 +110,12 @@ Cache *L2;
 #define L1I_replacement_policy RANDOM
 #define L1I_line_size 64
 #define L1I_bus_width 32
-#define L1I_write_policy WRITE_THROUGH
+#define L1I_write_policy WRITE_BACK
 
 #define L2_size 20000 // 20kb
 #define L2_associativity 1
 #define L2_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
-#define L2_write_policy WRITE_THROUGH
+#define L2_write_policy WRITE_BACK
 #define L2_line_size 64
 #define L2_replacement_policy RANDOM
 #define L2_bus_width 32
@@ -133,6 +140,17 @@ int calculate_number_sets(Cache *currentCache)
     return result;
   }
   return 0;
+}
+
+int calculate_number_lines_per_set(Cache *currentCache){
+  int result = 0;
+
+  //amount of lines per set for direct mapping
+  if(currentCache->mapping == DIRECT_MAPPING){
+    result = currentCache->amount_sets;
+  }
+
+  return result;
 }
 
 void allocateDirectMapped(Cache *currentCache)
@@ -163,6 +181,7 @@ Cache *cache_initialization(
   currentCache->bus_width = bus_width;
   currentCache->write_policy = write_policy;
   currentCache->amount_sets = calculate_number_sets(currentCache);
+  currentCache->amount_lines_per_set = calculate_number_lines_per_set(currentCache);
   currentCache->sets = malloc(sizeof(CacheSet) * currentCache->amount_sets);
   currentCache->hit_miss.read_hit = 0;
   currentCache->hit_miss.read_miss = 0;
@@ -173,6 +192,7 @@ Cache *cache_initialization(
 
 void memory_init(void)
 {
+  srand(time(NULL));
   L1D = (Cache *)malloc(sizeof(Cache));
   L1I = (Cache *)malloc(sizeof(Cache));
   L2 = (Cache *)malloc(sizeof(Cache));
@@ -216,7 +236,7 @@ masked_bits & original adress = LSB
 For extracting for example bit at position 5 to position 6 from the right lets visualize:
 Original bits 0000 1011 1100
 bit adress start at position 0 -> 11
-If we want to extract bit 11 at position 5 and 6 then we first shift the bits that we dont want out with:
+If we want to extract bit 01 at position 5 and 6 then we first shift the bits that we dont want out with:
 shifted_adress =  adress >> 5  // this gives us 0000 0000 0101
 masked_adress = ((1<<2)-1) // this gives us 0000 0000 0011
 extracted_2_LSB = masked_adress & shifted_adress // this gives us 0000 0000 0001
@@ -279,8 +299,31 @@ void CacheInsert(Cache *currentCache, uint64_t adress)
 
     line->valid = 1;
     line->tag = tag_index_off.tag;
+    line->markDirty = NOT_DIRTY;
   }
 }
+
+void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy policy){
+  //replacement policy for random
+  AdressParts tag_index_off = GetTagIndexOffset(currentCache, address);
+  printf("test\n");
+  if(policy == RANDOM){
+    int randomIndex = 0;
+    randomIndex = rand() % 5;
+    printf("random number up to 5 = %d\n", randomIndex);
+  }
+}
+
+void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty ){
+  AdressParts tag_index_off = GetTagIndexOffset(currentCache, address);
+
+  if(currentCache->mapping == DIRECT_MAPPING){
+    CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
+    line->markDirty = dirty;
+    printf("line dirty = %d\n", line->markDirty);
+  }
+}
+
 
 void memory_fetch(uint64_t address, data_t *data)
 {
@@ -353,6 +396,7 @@ void memory_read(uint64_t address, data_t *data)
   if (CacheLookup(L1D, address))
   {
     L1D->hit_miss.read_hit++;
+    //return data
   }
   else
   {
@@ -411,7 +455,6 @@ void memory_write(uint64_t address, data_t *data)
           */
          
          // --------- WRITE THROUGH POLICY -------- //
-         printf("inside \n");
          if(L1D->write_policy == WRITE_THROUGH){
            if(CacheLookup(L1D, address)){
              L1D->hit_miss.write_hit++;
@@ -431,7 +474,22 @@ void memory_write(uint64_t address, data_t *data)
           
     printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
     printf("L1D write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
-      // --------- WRITE BACK POLICY -------- //
+      // --------- WRITE BACK POLICY -------- //  
+          if(L1D->write_policy == WRITE_BACK){
+            if(CacheLookup(L1D, address)){
+              L1D->hit_miss.write_hit++;
+              MarkDirty(L1D, address, DIRTY);
+            }else{
+              printf("HERE\n");
+              L1D->hit_miss.write_miss++;
+              CacheReplacement(L1D, address, L1D->replacement_policy);
+              //locate a cache block to use with replacement policy
+            }
+            
+
+          }
+
+
   printf("memory: write 0x%" PRIx64 "\n", address);
 
   instr_count++;
