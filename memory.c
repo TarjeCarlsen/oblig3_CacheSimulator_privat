@@ -43,14 +43,14 @@ typedef enum
 } Associativity;
 
 typedef enum{
-  DIRTY, // 0
-  NOT_DIRTY, // 1
+  NOT_DIRTY, // 0
+  DIRTY, // 1
 }Dirty;
 
 typedef struct // Defines what each line holds. A single cache entry
 {
   int valid;
-  int tag;
+  uint64_t tag;
   int markDirty;
 } CacheLine;
 
@@ -96,7 +96,7 @@ Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1D_size 3000              // 3kb
+#define L1D_size 4096// 4kb
 #define L1D_associativity 1        // set to 1 for testing direct mapping
 #define L1D_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1D_replacement_policy RANDOM
@@ -104,7 +104,7 @@ Cache *L2;
 #define L1D_bus_width 32
 #define L1D_write_policy WRITE_BACK
 
-#define L1I_size 3000 // 3kb
+#define L1I_size 4096// 4kb
 #define L1I_associativity 1
 #define L1I_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1I_replacement_policy RANDOM
@@ -112,7 +112,7 @@ Cache *L2;
 #define L1I_bus_width 32
 #define L1I_write_policy WRITE_BACK
 
-#define L2_size 20000 // 20kb
+#define L2_size 8192 // 8kb
 #define L2_associativity 1
 #define L2_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L2_write_policy WRITE_BACK
@@ -147,7 +147,7 @@ int calculate_number_lines_per_set(Cache *currentCache){
 
   //amount of lines per set for direct mapping
   if(currentCache->mapping == DIRECT_MAPPING){
-    result = currentCache->amount_sets;
+    result = currentCache->associativity;
   }
 
   return result;
@@ -162,6 +162,7 @@ void allocateDirectMapped(Cache *currentCache)
     {
       currentCache->sets[i].lines[j].valid = 0;
       currentCache->sets[i].lines[j].tag = 0;
+      currentCache->sets[i].lines[j].markDirty = NOT_DIRTY;
     }
   }
 }
@@ -299,19 +300,43 @@ void CacheInsert(Cache *currentCache, uint64_t adress)
 
     line->valid = 1;
     line->tag = tag_index_off.tag;
-    line->markDirty = NOT_DIRTY;
   }
 }
+
 
 void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy policy){
   //replacement policy for random
   AdressParts tag_index_off = GetTagIndexOffset(currentCache, address);
-  printf("test\n");
+  int index_to_replace = 0;
   if(policy == RANDOM){
-    int randomIndex = 0;
-    randomIndex = rand() % 5;
-    printf("random number up to 5 = %d\n", randomIndex);
+    index_to_replace = rand() % currentCache->amount_lines_per_set;
+  }else if (policy == LRU)
+  {
+    /* code */
+  }else if (TEMPORAL_SPATIAL)
+  {
+    /* code */
   }
+
+  CacheSet *set = &currentCache->sets[tag_index_off.indexx];
+  CacheLine *replaceLine = &set->lines[index_to_replace];
+  printf("line to replace = 0x%"PRIx64" line valid = %d line dirty = %d\n", replaceLine->tag, replaceLine->valid, replaceLine->markDirty);
+
+  if(replaceLine->markDirty == DIRTY && replaceLine->valid == 1){
+    /*
+    Evicted adress code gotten from chatgpt. Chatlog :
+    https://chatgpt.com/share/68f3a9d9-0c8c-8011-8af1-f1bfc5fb46ce
+    */
+    int offset_bits = log2(currentCache->line_size);
+    int index_bits  = log2(currentCache->amount_sets);
+    uint64_t evicted_address = ((replaceLine->tag << index_bits) | tag_index_off.indexx) << offset_bits;
+    CacheInsert(L2,evicted_address); // HARDCODED L2 CACHE. HAS TO BE REDONE TO NOT INSERT INTO L2 ON REPLACEMENT 
+                                     // FROM L2
+  }
+
+  replaceLine->valid = 1;
+  replaceLine->markDirty = NOT_DIRTY;
+  replaceLine->tag = tag_index_off.tag;
 }
 
 void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty ){
@@ -320,7 +345,6 @@ void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty ){
   if(currentCache->mapping == DIRECT_MAPPING){
     CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
     line->markDirty = dirty;
-    printf("line dirty = %d\n", line->markDirty);
   }
 }
 
@@ -362,8 +386,8 @@ void memory_fetch(uint64_t address, data_t *data)
       CacheInsert(L1I, address); // must insert to L2 and L1I on miss
     }
   }
-  printf("L1I hits = %d miss = %d\n", L1I->hit_miss.read_hit, L1I->hit_miss.read_miss);
-  printf("L2 hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
+  // printf("L1I hits = %d miss = %d\n", L1I->hit_miss.read_hit, L1I->hit_miss.read_miss);
+  // printf("L2 hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
 
   printf("data = %p \n", (void *)data);
   printf("memory: fetch 0x%" PRIx64 "\n", address);
@@ -413,8 +437,8 @@ void memory_read(uint64_t address, data_t *data)
       CacheInsert(L1D, address);
     }
   }
-  printf("L1D hits = %d miss = %d\n", L1D->hit_miss.read_hit, L1D->hit_miss.read_miss);
-  printf("L1D hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
+  // printf("L1D hits = %d miss = %d\n", L1D->hit_miss.read_hit, L1D->hit_miss.read_miss);
+  // printf("L2 hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
   printf("memory: read 0x%" PRIx64 "\n", address);
   if (data)
   *data = (data_t)0;
@@ -472,19 +496,27 @@ void memory_write(uint64_t address, data_t *data)
             }
           }
           
-    printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
-    printf("L1D write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
+    // printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
+    // printf("L2 write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
       // --------- WRITE BACK POLICY -------- //  
           if(L1D->write_policy == WRITE_BACK){
             if(CacheLookup(L1D, address)){
               L1D->hit_miss.write_hit++;
               MarkDirty(L1D, address, DIRTY);
             }else{
-              printf("HERE\n");
               L1D->hit_miss.write_miss++;
               CacheReplacement(L1D, address, L1D->replacement_policy);
-              //locate a cache block to use with replacement policy
+              if(CacheLookup(L2, address)){
+                L2->hit_miss.write_hit++;
+              }else{
+                L2->hit_miss.write_miss++;
+                CacheInsert(L2,address);
+              }
+
+              CacheInsert(L1D,address);
+              MarkDirty(L1D,address,DIRTY);
             }
+
             
 
           }
