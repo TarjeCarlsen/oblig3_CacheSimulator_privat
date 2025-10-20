@@ -300,6 +300,7 @@ void CacheInsert(Cache *currentCache, uint64_t adress)
 
     line->valid = 1;
     line->tag = tag_index_off.tag;
+    line->markDirty = NOT_DIRTY;
   }
 }
 
@@ -335,7 +336,7 @@ void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy p
   }
 
   replaceLine->valid = 1;
-  replaceLine->markDirty = NOT_DIRTY;
+  replaceLine->markDirty = DIRTY;
   replaceLine->tag = tag_index_off.tag;
 }
 
@@ -432,6 +433,7 @@ void memory_read(uint64_t address, data_t *data)
     }
     else
     {
+      
       L2->hit_miss.read_miss++;
       CacheInsert(L2, address);
       CacheInsert(L1D, address);
@@ -499,36 +501,45 @@ void memory_write(uint64_t address, data_t *data)
     // printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
     // printf("L2 write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
       // --------- WRITE BACK POLICY -------- //  
-          if(L1D->write_policy == WRITE_BACK){
-            if(CacheLookup(L1D, address)){
-              L1D->hit_miss.write_hit++;
-              MarkDirty(L1D, address, DIRTY);
-            }else{
-              L1D->hit_miss.write_miss++;
-              CacheReplacement(L1D, address, L1D->replacement_policy);
-              if(CacheLookup(L2, address)){
-                L2->hit_miss.write_hit++;
-              }else{
-                L2->hit_miss.write_miss++;
-                CacheInsert(L2,address);
-              }
 
-              CacheInsert(L1D,address);
-              MarkDirty(L1D,address,DIRTY);
-            }
-
-            
-
+      
+      if(L1D->write_policy == WRITE_BACK){
+        if(CacheLookup(L1D, address)){
+          L1D->hit_miss.write_hit++;
+          MarkDirty(L1D, address, DIRTY);
+        }else{
+          L1D->hit_miss.write_miss++;
+          CacheReplacement(L1D, address, L1D->replacement_policy);
+          if(CacheLookup(L2, address)){
+            L2->hit_miss.write_hit++;
+          }else{
+            L2->hit_miss.write_miss++;
+            CacheInsert(L2,address);
           }
-
-
-  printf("memory: write 0x%" PRIx64 "\n", address);
-
-  instr_count++;
-}
-
-void memory_finish(void)
-{
+          
+          CacheInsert(L1D,address);
+          MarkDirty(L1D,address,DIRTY);
+        }
+        
+        
+        
+      }
+      
+      
+      printf("memory: write 0x%" PRIx64 "\n", address);
+      
+      instr_count++;
+    }
+    
+    void memory_finish(void)
+    {
+      // SOMETHING IS WRONG HERE. COUNTS ARE NOT CORRECT. CHECK MEMORY
+      // READ, WRITE, FETCH. MAKE NEW SIMPLE LOGFILE TO DEBUG AND COUNT EACH
+      // MISS AND EACH HIT SEPERATLY
+      printf(" ------- FINISHED SIMULATION --------- \n");
+  printf("-- L1D -- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L1D->hit_miss.read_hit, L1D->hit_miss.read_miss, L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
+  printf("-- L1I -- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L1I->hit_miss.read_hit, L1I->hit_miss.read_miss, L1I->hit_miss.write_hit, L1I->hit_miss.write_miss);
+  printf("-- L2 --- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss, L2->hit_miss.write_hit, L2->hit_miss.write_miss);
   fprintf(stdout, "Executed %lu instructions.\n\n", instr_count);
 
   /* Deinitialize memory subsystem here */
