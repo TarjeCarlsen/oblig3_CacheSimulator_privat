@@ -42,10 +42,11 @@ typedef enum
   SET_ASSOCIATIVE_MAPPING,
 } Associativity;
 
-typedef enum{
+typedef enum
+{
   NOT_DIRTY, // 0
-  DIRTY, // 1
-}Dirty;
+  DIRTY,     // 1
+} Dirty;
 
 typedef struct // Defines what each line holds. A single cache entry
 {
@@ -96,7 +97,7 @@ Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1D_size 4096// 4kb
+#define L1D_size 4096              // 4kb
 #define L1D_associativity 1        // set to 1 for testing direct mapping
 #define L1D_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1D_replacement_policy RANDOM
@@ -104,7 +105,7 @@ Cache *L2;
 #define L1D_bus_width 32
 #define L1D_write_policy WRITE_BACK
 
-#define L1I_size 4096// 4kb
+#define L1I_size 4096 // 4kb
 #define L1I_associativity 1
 #define L1I_mapping DIRECT_MAPPING // set to 1 for testing direct mapping
 #define L1I_replacement_policy RANDOM
@@ -142,11 +143,13 @@ int calculate_number_sets(Cache *currentCache)
   return 0;
 }
 
-int calculate_number_lines_per_set(Cache *currentCache){
+int calculate_number_lines_per_set(Cache *currentCache)
+{
   int result = 0;
 
-  //amount of lines per set for direct mapping
-  if(currentCache->mapping == DIRECT_MAPPING){
+  // amount of lines per set for direct mapping
+  if (currentCache->mapping == DIRECT_MAPPING)
+  {
     result = currentCache->associativity;
   }
 
@@ -304,35 +307,46 @@ void CacheInsert(Cache *currentCache, uint64_t adress)
   }
 }
 
-
-void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy policy){
-  //replacement policy for random
+void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy policy)
+{
+  // replacement policy for random
   AdressParts tag_index_off = GetTagIndexOffset(currentCache, address);
   int index_to_replace = 0;
-  if(policy == RANDOM){
+  if (policy == RANDOM)
+  {
     index_to_replace = rand() % currentCache->amount_lines_per_set;
-  }else if (policy == LRU)
+  }
+  else if (policy == LRU)
   {
     /* code */
-  }else if (TEMPORAL_SPATIAL)
+  }
+  else if (TEMPORAL_SPATIAL)
   {
     /* code */
   }
 
   CacheSet *set = &currentCache->sets[tag_index_off.indexx];
   CacheLine *replaceLine = &set->lines[index_to_replace];
-  printf("line to replace = 0x%"PRIx64" line valid = %d line dirty = %d\n", replaceLine->tag, replaceLine->valid, replaceLine->markDirty);
+  printf("line to replace = 0x%" PRIx64 " line valid = %d line dirty = %d\n", replaceLine->tag, replaceLine->valid, replaceLine->markDirty);
 
-  if(replaceLine->markDirty == DIRTY && replaceLine->valid == 1){
+  if (replaceLine->markDirty == DIRTY && replaceLine->valid == 1)
+  {
     /*
     Evicted adress code gotten from chatgpt. Chatlog :
     https://chatgpt.com/share/68f3a9d9-0c8c-8011-8af1-f1bfc5fb46ce
     */
     int offset_bits = log2(currentCache->line_size);
-    int index_bits  = log2(currentCache->amount_sets);
+    int index_bits = log2(currentCache->amount_sets);
     uint64_t evicted_address = ((replaceLine->tag << index_bits) | tag_index_off.indexx) << offset_bits;
-    CacheInsert(L2,evicted_address); // HARDCODED L2 CACHE. HAS TO BE REDONE TO NOT INSERT INTO L2 ON REPLACEMENT 
-                                     // FROM L2
+    if (CacheLookup(L2, evicted_address))
+    {
+      L2->hit_miss.write_hit++;
+    }
+    else
+    {
+      L2->hit_miss.write_miss++;
+      CacheInsert(L2, evicted_address);
+    }
   }
 
   replaceLine->valid = 1;
@@ -340,15 +354,16 @@ void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy p
   replaceLine->tag = tag_index_off.tag;
 }
 
-void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty ){
+void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty)
+{
   AdressParts tag_index_off = GetTagIndexOffset(currentCache, address);
 
-  if(currentCache->mapping == DIRECT_MAPPING){
+  if (currentCache->mapping == DIRECT_MAPPING)
+  {
     CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
     line->markDirty = dirty;
   }
 }
-
 
 void memory_fetch(uint64_t address, data_t *data)
 {
@@ -421,7 +436,7 @@ void memory_read(uint64_t address, data_t *data)
   if (CacheLookup(L1D, address))
   {
     L1D->hit_miss.read_hit++;
-    //return data
+    // return data
   }
   else
   {
@@ -433,7 +448,7 @@ void memory_read(uint64_t address, data_t *data)
     }
     else
     {
-      
+
       L2->hit_miss.read_miss++;
       CacheInsert(L2, address);
       CacheInsert(L1D, address);
@@ -443,8 +458,8 @@ void memory_read(uint64_t address, data_t *data)
   // printf("L2 hits = %d miss = %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss);
   printf("memory: read 0x%" PRIx64 "\n", address);
   if (data)
-  *data = (data_t)0;
-  
+    *data = (data_t)0;
+
   instr_count++;
 }
 
@@ -454,89 +469,107 @@ void memory_write(uint64_t address, data_t *data)
   Write through : Data written to L1 has to then aswell be written to L2
   Write back: Data modified will be written to L1 and marked as dirty. When evicted from L1 the data
   is then written to the next level, L2 and again marked as dirty.
-  
-  */
- /*PSEUDO
- //WITH WRITETHOUGH POLICY, CAN BE REDONE TO MAKE CLEANER, FOR EXAMPLE MOVE TO FUNCTION
- 
- if(L1D->write_policy == Write_through)
- {
-  if(cacheLookup(L1D, address)){
-    L1D->Hit++;
-    cacheInsert(L2,adress)
-    }else{
-      L1D->Miss++;
-      if(cacheLookup(L2, address)){
-        L2->Hit++;
-        cacheInsert(L1D,address);
-        }else{
-          L2->Miss++;
-          cacheInsert(L1D,address);
-          cacheInsert(L2,address);
-          }
-          }
-          }
-          
-          //WITH WRITEBACK POLICY:
-          */
-         
-         // --------- WRITE THROUGH POLICY -------- //
-         if(L1D->write_policy == WRITE_THROUGH){
-           if(CacheLookup(L1D, address)){
-             L1D->hit_miss.write_hit++;
-             CacheInsert(L2,address);
-            }else{
-              L1D->hit_miss.write_miss++;
-              if(CacheLookup(L2,address)){
-                L2->hit_miss.write_hit++;
-                CacheInsert(L1D,address);
-              }else{
-                L2->hit_miss.write_miss++;
-                CacheInsert(L2,address);
-                CacheInsert(L1D,address);
-              }
-            }
-          }
-          
-    // printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
-    // printf("L2 write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
-      // --------- WRITE BACK POLICY -------- //  
 
-      
-      if(L1D->write_policy == WRITE_BACK){
-        if(CacheLookup(L1D, address)){
-          L1D->hit_miss.write_hit++;
-          MarkDirty(L1D, address, DIRTY);
-        }else{
-          L1D->hit_miss.write_miss++;
-          CacheReplacement(L1D, address, L1D->replacement_policy);
-          if(CacheLookup(L2, address)){
-            L2->hit_miss.write_hit++;
-          }else{
-            L2->hit_miss.write_miss++;
-            CacheInsert(L2,address);
-          }
-          
-          CacheInsert(L1D,address);
-          MarkDirty(L1D,address,DIRTY);
-        }
-        
-        
-        
-      }
-      
-      
-      printf("memory: write 0x%" PRIx64 "\n", address);
-      
-      instr_count++;
-    }
-    
-    void memory_finish(void)
+  */
+  /*PSEUDO
+  //WITH WRITETHOUGH POLICY, CAN BE REDONE TO MAKE CLEANER, FOR EXAMPLE MOVE TO FUNCTION
+
+  if(L1D->write_policy == Write_through)
+  {
+   if(cacheLookup(L1D, address)){
+     L1D->Hit++;
+     cacheInsert(L2,adress)
+     }else{
+       L1D->Miss++;
+       if(cacheLookup(L2, address)){
+         L2->Hit++;
+         cacheInsert(L1D,address);
+         }else{
+           L2->Miss++;
+           cacheInsert(L1D,address);
+           cacheInsert(L2,address);
+           }
+           }
+           }
+
+           //WITH WRITEBACK POLICY:
+           */
+
+  // --------- WRITE THROUGH POLICY -------- //
+  if (L1D->write_policy == WRITE_THROUGH)
+  {
+    if (CacheLookup(L1D, address))
     {
-      // SOMETHING IS WRONG HERE. COUNTS ARE NOT CORRECT. CHECK MEMORY
-      // READ, WRITE, FETCH. MAKE NEW SIMPLE LOGFILE TO DEBUG AND COUNT EACH
-      // MISS AND EACH HIT SEPERATLY
-      printf(" ------- FINISHED SIMULATION --------- \n");
+      L1D->hit_miss.write_hit++;
+
+      if (CacheLookup(L2, address))
+      {
+        L2->hit_miss.write_hit++;
+      }
+      else
+      {
+        L2->hit_miss.write_miss++;
+        CacheInsert(L2, address);
+      }
+    }
+    else
+    {
+      L1D->hit_miss.write_miss++;
+      if (CacheLookup(L2, address))
+      {
+        L2->hit_miss.write_hit++;
+        CacheInsert(L1D, address);
+      }
+      else
+      {
+        L2->hit_miss.write_miss++;
+        CacheInsert(L2, address);
+        CacheInsert(L1D, address);
+      }
+    }
+  }
+
+  // printf("L1D write hits = %d write miss = %d\n", L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
+  // printf("L2 write hits = %d write miss = %d\n", L2->hit_miss.write_hit, L2->hit_miss.write_miss);
+  // --------- WRITE BACK POLICY -------- //
+
+  if (L1D->write_policy == WRITE_BACK)
+  {
+    if (CacheLookup(L1D, address))
+    {
+      L1D->hit_miss.write_hit++;
+      MarkDirty(L1D, address, DIRTY);
+    }
+    else
+    {
+      L1D->hit_miss.write_miss++;
+      CacheReplacement(L1D, address, L1D->replacement_policy);
+      if (CacheLookup(L2, address))
+      {
+        L2->hit_miss.write_hit++;
+      }
+      else
+      {
+        L2->hit_miss.write_miss++;
+        CacheInsert(L2, address);
+      }
+
+      CacheInsert(L1D, address);
+      MarkDirty(L1D, address, DIRTY);
+    }
+  }
+
+  printf("memory: write 0x%" PRIx64 "\n", address);
+
+  instr_count++;
+}
+
+void memory_finish(void)
+{
+  // SOMETHING IS WRONG HERE. COUNTS ARE NOT CORRECT. CHECK MEMORY
+  // READ, WRITE, FETCH. MAKE NEW SIMPLE LOGFILE TO DEBUG AND COUNT EACH
+  // MISS AND EACH HIT SEPERATLY
+  printf(" ------- FINISHED SIMULATION --------- \n");
   printf("-- L1D -- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L1D->hit_miss.read_hit, L1D->hit_miss.read_miss, L1D->hit_miss.write_hit, L1D->hit_miss.write_miss);
   printf("-- L1I -- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L1I->hit_miss.read_hit, L1I->hit_miss.read_miss, L1I->hit_miss.write_hit, L1I->hit_miss.write_miss);
   printf("-- L2 --- Read_Hits: %d Read_Miss %d Write_Hits: %d Write_Miss: %d\n", L2->hit_miss.read_hit, L2->hit_miss.read_miss, L2->hit_miss.write_hit, L2->hit_miss.write_miss);
