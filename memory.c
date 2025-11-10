@@ -153,7 +153,7 @@ int calculate_number_lines_per_set(Cache *currentCache)
     result = currentCache->associativity;
   }
 
-  return result;
+  return result;    
 }
 
 void allocateDirectMapped(Cache *currentCache)
