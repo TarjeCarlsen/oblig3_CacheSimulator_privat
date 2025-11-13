@@ -15,7 +15,7 @@ dirs:
 	@mkdir -p $(OBJDIR)
 
 $(PROGRAM): $(patsubst %, $(OBJDIR)/%, $(OBJS))
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ -lm
 
 $(OBJDIR)/%.o: %.c dirs
 	$(CC) $(CFLAGS) -c $< -o $@
