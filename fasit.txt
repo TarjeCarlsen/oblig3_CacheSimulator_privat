@@ -1,0 +1,48 @@
+Ressultat for følgende konfigurasjon: 
+
+!! RANDOM er for denne testen alltid satt til index_to_replace = 0 !!
+
+#define L1I_size 4096 // 4kb
+#define L1I_associativity 2
+#define L1I_mapping SET_ASSOCIATIVE_MAPPING 
+#define L1I_replacement_policy RANDOM
+#define L1I_line_size 64
+#define L1I_bus_width 256
+#define L1I_write_policy WRITE_BACK
+
+#define L1D_size 4096              
+#define L1D_associativity 2        
+#define L1D_mapping SET_ASSOCIATIVE_MAPPING 
+#define L1D_replacement_policy RANDOM
+#define L1D_line_size 64
+#define L1D_bus_width 64
+#define L1D_write_policy WRITE_BACK
+
+#define L2_size 8192 // 4kb
+#define L2_associativity 2
+#define L2_mapping SET_ASSOCIATIVE_MAPPING 
+#define L2_write_policy WRITE_BACK
+#define L2_line_size 64
+#define L2_replacement_policy RANDOM
+#define L2_bus_width 64
+
+I 0x04000000 — L1I miss → L2 miss → load (L2 read)
+I 0x04000000 — L1I hit
+L 0x10000000 — L1D miss → L2 miss → load (L2 read)
+S 0x10000000 — L1D write hit (mark dirty)
+L 0x10000008 — L1D read hit (samme 64B‑linje)
+S 0x10000000 — L1D write hit
+I 0x04000040 — L1I miss → L2 miss → load (L2 read)
+L 0x10000000 — L1D read hit
+S 0x20000000 — L1D write miss → write‑allocate uten L2‑fetch (ingen L2 read) → mark dirty (L1D write_miss)
+I 0x04000000 — L1I hit
+
+Froventet:
+-- L1I -- Read_Hits: 2  Read_Miss: 2
+-- L1D -- Read_Hits: 2  Read_Miss: 1  Write_Hits: 2  Write_Miss: 1 
+-- L2  -- Read_Hits: 0  Read_Miss: 3  Write_Hits: 0  Write_Miss: 1 
+
+Ressultat:
+-- L1I -- Read_Hits: 2  Read_Miss: 2  [Hit Rate: 50.00%]
+-- L1D -- Read_Hits: 2  Read_Miss: 1  Write_Hits: 2  Write_Miss: 1  [Hit Rate: 66.67%]
+-- L2  -- Read_Hits: 0  Read_Miss: 3  Write_Hits: 0  Write_Miss: 1  [Hit Rate: 0.00%]
