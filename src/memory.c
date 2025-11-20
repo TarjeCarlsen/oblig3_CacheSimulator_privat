@@ -97,29 +97,29 @@ Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1I_size 4096 // 4kb
-#define L1I_associativity 2
+#define L1I_size 2048 // 4kb
+#define L1I_associativity 4
 #define L1I_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L1I_replacement_policy LRU
+#define L1I_replacement_policy RANDOM
 #define L1I_line_size 64
-#define L1I_bus_width 256
+#define L1I_bus_width 64
 #define L1I_write_policy WRITE_BACK
 
-#define L1D_size 4096              // 4kb
-#define L1D_associativity 2        // set to 1 for testing direct mapping
+#define L1D_size 2048                       // 4kb
+#define L1D_associativity 4                 // set to 1 for testing direct mapping
 #define L1D_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L1D_replacement_policy LRU
+#define L1D_replacement_policy RANDOM
 #define L1D_line_size 64
-#define L1D_bus_width 64
+#define L1D_bus_width 64 
 #define L1D_write_policy WRITE_BACK
 
-#define L2_size 8192 // 4kb
-#define L2_associativity 2
+#define L2_size 4096 // 4kb
+#define L2_associativity 4
 #define L2_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L2_write_policy WRITE_BACK
+#define L2_replacement_policy RANDOM
 #define L2_line_size 64
-#define L2_replacement_policy LRU
 #define L2_bus_width 64
+#define L2_write_policy WRITE_BACK
 
 // void print_bits(uint64_t value, int bits) // Print funksjon hentet fra gpt for feilsøking
 // {
@@ -136,8 +136,8 @@ int calculate_number_sets(Cache *currentCache)
 {
   int result = 0;
 
-    result = currentCache->size / (currentCache->line_size * currentCache->associativity);
-    return result;
+  result = currentCache->size / (currentCache->line_size * currentCache->associativity);
+  return result;
   return 0;
 }
 
@@ -151,7 +151,7 @@ int calculate_number_sets(Cache *currentCache)
 //     result = currentCache->associativity;
 //   }
 
-//   return result;    
+//   return result;
 // }
 
 void allocateDirectMapped(Cache *currentCache)
@@ -167,7 +167,6 @@ void allocateDirectMapped(Cache *currentCache)
     }
   }
 }
-
 
 // Sjett at dette ikke fører til noen komplikasjoner
 void allocateSetAssosiativeMapped(Cache *currentCache)
@@ -301,24 +300,24 @@ int CacheLookup(Cache *currentCache, uint64_t adress)
   {
     // printf("Inside direct mapping in lookup\n");
     CacheLine *line = &currentCache->sets[tag_index_offset.indexx].lines[0];
-    
+
     if (line->valid == 1 && line->tag == tag_index_offset.tag)
     {
       return 1;
     }
   }
-  
+
   if (currentCache->mapping == SET_ASSOCIATIVE_MAPPING)
   {
     // printf("Inside setassociative mapping in lookup\n");
-    
+
     CacheSet *set = &currentCache->sets[tag_index_offset.indexx];
 
-    for(int i = 0; i < currentCache->associativity; i++)
+    for (int i = 0; i < currentCache->associativity; i++)
     {
       CacheLine *line = &set->lines[i];
 
-      if(line->valid == 1 && line->tag == tag_index_offset.tag)
+      if (line->valid == 1 && line->tag == tag_index_offset.tag)
       {
         return 1;
       }
@@ -333,38 +332,22 @@ void CacheInsert(Cache *currentCache, uint64_t adress)
 {
   AdressParts tag_index_off = GetTagIndexOffset(currentCache, adress);
 
-  // insert for direct mapping
-  if (currentCache->mapping == DIRECT_MAPPING)
-  {
-        // printf("Inside direct mapping in insert\n");
-        
-        CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
-        
+    CacheSet *set = &currentCache->sets[tag_index_off.indexx];
+
+    for (int i = 0; i < currentCache->associativity; i++)
+    {
+      CacheLine *line = &set->lines[i];
+      if (line->valid == 0)
+      {
         line->valid = 1;
         line->tag = tag_index_off.tag;
         line->markDirty = NOT_DIRTY;
-        
-        
+        return;
       }
-      
-      if (currentCache->mapping == SET_ASSOCIATIVE_MAPPING)
-      {
-    // printf("Inside setassociative mapping in insert\n");
-    CacheSet *set = &currentCache->sets[tag_index_off.indexx];
-
-    for(int i = 0; i < currentCache->associativity; i++)
-    {
-      CacheLine *line = &set->lines[i];
-        if(line->valid ==0){
-          line->valid = 1;
-          line->tag = tag_index_off.tag;
-          line->markDirty = NOT_DIRTY;
-          return;
-        }
     }
-    CacheReplacement(currentCache,adress, currentCache->replacement_policy);
+    CacheReplacement(currentCache, adress, currentCache->replacement_policy);
   }
-}
+// }
 
 void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy policy)
 {
@@ -375,43 +358,36 @@ void CacheReplacement(Cache *currentCache, uint64_t address, ReplacementPolicy p
   {
     index_to_replace = rand() % currentCache->associativity;
   }
-  else if (policy == LRU)
-  {
-    index_to_replace = 0; // USED FOR TESTING
-    /* code */
-  }
-  else if (TEMPORAL_SPATIAL)
-  {
-    /* code */
-  }
 
   CacheSet *set = &currentCache->sets[tag_index_off.indexx];
   CacheLine *replaceLine = &set->lines[index_to_replace];
   // printf("line to replace = 0x%" PRIx64 " line valid = %d line dirty = %d\n", replaceLine->tag, replaceLine->valid, replaceLine->markDirty);
 
-  if (replaceLine->markDirty == DIRTY && replaceLine->valid == 1)
-  {
+
     /*
     Evicted adress code gotten from chatgpt. Chatlog :
     https://chatgpt.com/share/68f3a9d9-0c8c-8011-8af1-f1bfc5fb46ce
     */
-    int offset_bits = log2(currentCache->line_size);
-    int index_bits = log2(currentCache->amount_sets);
-    uint64_t evicted_address = ((replaceLine->tag << index_bits) | tag_index_off.indexx) << offset_bits;
-    if (CacheLookup(L2, evicted_address))
+    if (replaceLine->valid && replaceLine->markDirty == DIRTY)
     {
-      L2->hit_miss.write_hit++;
-    }
-    else
-    {
-      L2->hit_miss.write_miss++;
-      CacheInsert(L2, evicted_address);
-    }
-  }
+      // reconstruct address
+      int offset_bits = log2(currentCache->line_size);
+      int index_bits = log2(currentCache->amount_sets);
 
-  replaceLine->valid = 1;
-  replaceLine->markDirty = DIRTY;
-  replaceLine->tag = tag_index_off.tag;
+      uint64_t evicted_address = ((replaceLine->tag << index_bits) | tag_index_off.indexx) << offset_bits;
+
+      if (CacheLookup(L2, evicted_address))
+        L2->hit_miss.write_hit++;
+      else
+      {
+        L2->hit_miss.write_miss++;
+        CacheInsert(L2, evicted_address);
+      }
+    }
+    // Do NOT mark dirty here
+    replaceLine->valid = 1;
+    replaceLine->tag = tag_index_off.tag;
+    replaceLine->markDirty = NOT_DIRTY;
 }
 
 void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty)
@@ -422,6 +398,19 @@ void MarkDirty(Cache *currentCache, uint64_t address, Dirty dirty)
   {
     CacheLine *line = &currentCache->sets[tag_index_off.indexx].lines[0];
     line->markDirty = dirty;
+  }
+
+  CacheSet *set = &currentCache->sets[tag_index_off.indexx];
+  if(currentCache->mapping == SET_ASSOCIATIVE_MAPPING){
+    for (size_t i = 0; i < currentCache->associativity; i++)
+    {
+      CacheLine *line = &set->lines[i];
+      if (line->valid && line->tag == tag_index_off.tag)
+      {
+        line->markDirty = dirty;
+        return;
+      }
+    }
   }
 }
 
@@ -603,7 +592,9 @@ void memory_write(uint64_t address, data_t *data)
     else
     {
       L1D->hit_miss.write_miss++;
-      CacheReplacement(L1D, address, L1D->replacement_policy);
+      CacheInsert(L1D,address);
+      MarkDirty(L1D,address, DIRTY);
+      // CacheReplacement(L1D, address, L1D->replacement_policy);
       if (CacheLookup(L2, address))
       {
         L2->hit_miss.write_hit++;
@@ -613,9 +604,8 @@ void memory_write(uint64_t address, data_t *data)
         L2->hit_miss.write_miss++;
         CacheInsert(L2, address);
       }
-
-      CacheInsert(L1D, address);
-      MarkDirty(L1D, address, DIRTY);
+      // CacheInsert(L1D, address);
+      // MarkDirty(L1D, address, DIRTY);
     }
   }
 
@@ -626,43 +616,59 @@ void memory_write(uint64_t address, data_t *data)
 
 void memory_finish(void)
 {
-  printf(" ------- FINISHED SIMULATION --------- \n"); //FINISHED PRINTS GOTTEN FROM CHATGPT
+  printf(" ------- FINISHED SIMULATION --------- \n");
 
+  // L1D totals
   int L1D_read_total = L1D->hit_miss.read_hit + L1D->hit_miss.read_miss;
   int L1D_write_total = L1D->hit_miss.write_hit + L1D->hit_miss.write_miss;
   int L1D_total = L1D_read_total + L1D_write_total;
 
+  // L1I totals
   int L1I_read_total = L1I->hit_miss.read_hit + L1I->hit_miss.read_miss;
-  int L1I_total = L1I_read_total;
 
+  // L2 totals
   int L2_read_total = L2->hit_miss.read_hit + L2->hit_miss.read_miss;
   int L2_write_total = L2->hit_miss.write_hit + L2->hit_miss.write_miss;
   int L2_total = L2_read_total + L2_write_total;
 
-  float L1D_hit_rate = (L1D_total > 0) ? 
-      100.0f * (L1D->hit_miss.read_hit + L1D->hit_miss.write_hit) / L1D_total : 0.0f;
+  // ----------- NEW percentages -----------
+  float L1D_read_hit_rate = (L1D_read_total > 0) ? 100.0f * L1D->hit_miss.read_hit / L1D_read_total : 0.0f;
+  float L1D_write_hit_rate = (L1D_write_total > 0) ? 100.0f * L1D->hit_miss.write_hit / L1D_write_total : 0.0f;
 
-  float L1I_hit_rate = (L1I_total > 0) ? 
-      100.0f * L1I->hit_miss.read_hit / L1I_total : 0.0f;
+  float L1I_read_hit_rate = (L1I_read_total > 0) ? 100.0f * L1I->hit_miss.read_hit / L1I_read_total : 0.0f;
 
-  float L2_hit_rate = (L2_total > 0) ? 
-      100.0f * (L2->hit_miss.read_hit + L2->hit_miss.write_hit) / L2_total : 0.0f;
+  float L2_read_hit_rate = (L2_read_total > 0) ? 100.0f * L2->hit_miss.read_hit / L2_read_total : 0.0f;
+  float L2_write_hit_rate = (L2_write_total > 0) ? 100.0f * L2->hit_miss.write_hit / L2_write_total : 0.0f;
 
-  printf("-- L1I -- Read_Hits: %d  Read_Miss: %d  [Hit Rate: %.2f%%]\n",
-          L1I->hit_miss.read_hit, L1I->hit_miss.read_miss,
-          L1I_hit_rate);
+  // Original total hit-rates from your version
+  float L1D_hit_rate = (L1D_total > 0) ? 100.0f * (L1D->hit_miss.read_hit + L1D->hit_miss.write_hit) / L1D_total : 0.0f;
 
+  float L1I_hit_rate = (L1I_read_total > 0) ? 100.0f * L1I->hit_miss.read_hit / L1I_read_total : 0.0f;
+
+  float L2_hit_rate = (L2_total > 0) ? 100.0f * (L2->hit_miss.read_hit + L2->hit_miss.write_hit) / L2_total : 0.0f;
+
+  // ----------- PRINT EXACT SAME FORMAT + EXTRA INFO -----------
+
+  printf("-- L1I -- Read_Hits: %d  Read_Miss: %d  [Hit Rate: %.2f%%]  (Read Hit%%: %.2f%%)\n",
+         L1I->hit_miss.read_hit, L1I->hit_miss.read_miss,
+         L1I_hit_rate,
+         L1I_read_hit_rate);
 
   printf("-- L1D -- Read_Hits: %d  Read_Miss: %d  Write_Hits: %d  Write_Miss: %d  [Hit Rate: %.2f%%]\n",
          L1D->hit_miss.read_hit, L1D->hit_miss.read_miss,
          L1D->hit_miss.write_hit, L1D->hit_miss.write_miss,
          L1D_hit_rate);
 
+  printf("          (Read Hit%%: %.2f%%   Write Hit%%: %.2f%%)\n",
+         L1D_read_hit_rate, L1D_write_hit_rate);
 
   printf("-- L2  -- Read_Hits: %d  Read_Miss: %d  Write_Hits: %d  Write_Miss: %d  [Hit Rate: %.2f%%]\n",
          L2->hit_miss.read_hit, L2->hit_miss.read_miss,
          L2->hit_miss.write_hit, L2->hit_miss.write_miss,
          L2_hit_rate);
+
+  printf("          (Read Hit%%: %.2f%%   Write Hit%%: %.2f%%)\n",
+         L2_read_hit_rate, L2_write_hit_rate);
 
   printf("Executed %lu instructions.\n\n", instr_count);
 }
