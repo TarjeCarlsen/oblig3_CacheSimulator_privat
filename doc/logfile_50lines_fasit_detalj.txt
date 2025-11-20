@@ -1,0 +1,175 @@
+Detaljert fasit for logfile_50lines (49 operasjoner) opprettet av GPT-5: 
+
+Forutsetninger fra koden:
+- L1I: 512 B, 2-way set-assoc, line 64 B → antall sett = 512/(64*2) = 4, indexbits=2 (bit 6–7), offsetbits=6
+- L1D: 512 B, 2-way set-assoc, line 64 B → antall sett = 4, indexbits=2, offsetbits=6
+- L2:  1024 B, 2-way set-assoc, line 64 B → antall sett = 1024/(64*2) = 8, indexbits=3 (bit 6–8), offsetbits=6
+- Replacement: “LRU” er implementert som alltid evict way 0 når settet er fullt
+- Write policy L1D: WRITE_BACK (write hit: mark dirty, ingen L2-aksess; write miss: sett inn i L1D, mark dirty, og tell L2 write hit/miss)
+- Alle adresser i loggen har stride 0x400, så index=0 i alle levels hele veien (kun set 0 brukes). Taggen endres hver gang.
+- Notasjon:
+  - L1I tag = addr >> (6+2) = addr >> 8          (hex)
+  - L1D tag = addr >> 8                           (hex)
+  - L2  tag = addr >> (6+3) = addr >> 9           (hex)
+  - «WB» betyr write-back fra L1D-eviction (dirty)
+
+Starttilstand:
+- L1I[set0]: tomt (way0, way1)
+- L1D[set0]: tomt (way0, way1)
+- L2 [set0]: tomt (way0, way1)
+
+Instruksjoner 1–8 (I = memory_fetch på L1I)
+1) I 0x04000000  (L1I idx=0, tag 0x40000; L2 tag 0x20000)
+   - L1I miss → L2 read miss. Insert L2[w0]=0x20000, L1I[w0]=0x40000
+2) I 0x04000400  (tag 0x40004; L2 0x20002)
+   - L1I miss → L2 read miss. Insert L2[w1]=0x20002, L1I[w1]=0x40004
+3) I 0x04000800  (tag 0x40008; L2 0x20004)
+   - L1I miss → L2 read miss. L2 full → evict w0(0x20000) → L2[w0]=0x20004
+   - L1I full → evict w0(0x40000) → L1I[w0]=0x40008
+4) I 0x04000C00  (tag 0x4000C; L2 0x20006)
+   - L1I miss → L2 read miss. Evict L2 w0(0x20004) → L2[w0]=0x20006
+   - Evict L1I w0(0x40008) → L1I[w0]=0x4000C
+5) I 0x04001000  (tag 0x40010; L2 0x20008)
+   - L1I miss → L2 read miss. Evict L2 w0(0x20006) → L2[w0]=0x20008
+   - Evict L1I w0(0x4000C) → L1I[w0]=0x40010
+6) I 0x04000000  (tag 0x40000; L2 0x20000)
+   - L1I miss → L2 read miss. Evict L2 w0(0x20008) → L2[w0]=0x20000
+   - Evict L1I w0(0x40010) → L1I[w0]=0x40000
+7) I 0x04000000  (tag 0x40000)
+   - L1I hit (w0)
+8) I 0x04001000  (tag 0x40010; L2 0x20008)
+   - L1I miss → L2 read miss. Evict L2 w0(0x20000) → L2[w0]=0x20008
+   - Evict L1I w0(0x40000) → L1I[w0]=0x40010
+
+Data 9–35 (L = memory_read, S = memory_write på L1D)
+9)  L 0x10000000 (L1D tag 0x100000; L2 0x80000)
+    - L1D miss → L2 read miss. L2[w0]=0x80000. L1D[w0]=0x100000 (clean)
+10) S 0x10000000
+    - L1D write hit (w0). Mark dirty. Ingen L2-aksess
+11) L 0x10000400 (tag 0x100004; L2 0x80002)
+    - L1D miss → L2 read miss. L2[w1]=0x80002. L1D[w1]=0x100004 (clean)
+12) L 0x10000800 (tag 0x100008; L2 0x80004)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80000) → L2[w0]=0x80004
+    - Insert L1D: full → evict w0(0x100000 DIRTY) ⇒ WB til L2 på addr 0x10000000 (L2 tag 0x80000)
+      • L2 lookup 0x80000 = miss → L2 write_miss, insert (evict L2 w0(0x80004)) → L2[w0]=0x80000
+      • L1D[w0]=0x100008 (clean)
+13) L 0x10000C00 (L2 0x80006)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80000) → L2[w0]=0x80006
+    - Insert L1D: evict w0(0x100008 clean) → L1D[w0]=0x10000C (clean)
+14) L 0x10001000 (L2 0x80008)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80006) → L2[w0]=0x80008
+    - Insert L1D: evict w0(0x10000C clean) → L1D[w0]=0x100010 (clean)
+15) L 0x10000000 (L2 0x80000)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80008) → L2[w0]=0x80000
+    - Insert L1D: evict w0(0x100010 clean) → L1D[w0]=0x100000 (clean)
+16) S 0x10000800 (L2 0x80004)
+    - L1D write miss: Insert L1D (evict w0(0x100000 clean)) → L1D[w0]=0x100008 (mark DIRTY)
+    - L2 lookup 0x80004 = miss → L2 write_miss. Evict L2 w0(0x80000) → L2[w0]=0x80004
+17) L 0x10000400
+    - L1D hit (w1)
+18) S 0x10000400
+    - L1D write hit (w1). Mark DIRTY
+19) L 0x10000C00 (L2 0x80006)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80004) → L2[w0]=0x80006
+    - Insert L1D: evict w0(0x100008 DIRTY) ⇒ WB til L2 (tag 0x80004) = miss → L2 write_miss, evict L2 w0(0x80006), L2[w0]=0x80004
+      • L1D[w0]=0x10000C (clean)
+20) S 0x10000C00
+    - L1D write hit (w0). Mark DIRTY
+21) L 0x10001000 (L2 0x80008)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80004) → L2[w0]=0x80008
+    - Insert L1D: evict w0(0x10000C DIRTY) ⇒ WB til L2 (0x80006) = miss → L2 write_miss, evict L2 w0(0x80008), L2[w0]=0x80006
+      • L1D[w0]=0x100010 (clean)
+22) S 0x10001000
+    - L1D write hit (w0). Mark DIRTY
+23) L 0x10000000 (L2 0x80000)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80006) → L2[w0]=0x80000
+    - Insert L1D: evict w0(0x100010 DIRTY) ⇒ WB til L2 (0x80008) = miss → L2 write_miss, evict L2 w0(0x80000), L2[w0]=0x80008
+      • L1D[w0]=0x100000 (clean)
+24) S 0x10000000
+    - L1D write hit (w0). Mark DIRTY
+25) L 0x10000800 (L2 0x80004)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80008) → L2[w0]=0x80004
+    - Insert L1D: evict w0(0x100000 DIRTY) ⇒ WB til L2 (0x80000) = miss → L2 write_miss, evict L2 w0(0x80004), L2[w0]=0x80000
+      • L1D[w0]=0x100008 (clean)
+26) L 0x10000800
+    - L1D hit (w0)
+27) S 0x10000800
+    - L1D write hit (w0). Mark DIRTY
+28) L 0x10000C00 (L2 0x80006)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80000) → L2[w0]=0x80006
+    - Insert L1D: evict w0(0x100008 DIRTY) ⇒ WB til L2 (0x80004) = miss → L2 write_miss, evict L2 w0(0x80006), L2[w0]=0x80004
+      • L1D[w0]=0x10000C (clean)
+29) S 0x10000C00
+    - L1D write hit (w0). Mark DIRTY
+30) L 0x10001000 (L2 0x80008)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80004) → L2[w0]=0x80008
+    - Insert L1D: evict w0(0x10000C DIRTY) ⇒ WB til L2 (0x80006) = miss → L2 write_miss, evict L2 w0(0x80008), L2[w0]=0x80006
+      • L1D[w0]=0x100010 (clean)
+31) S 0x10001000
+    - L1D write hit (w0). Mark DIRTY
+32) L 0x10000000 (L2 0x80000)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80006) → L2[w0]=0x80000
+    - Insert L1D: evict w0(0x100010 DIRTY) ⇒ WB til L2 (0x80008) = miss → L2 write_miss, evict L2 w0(0x80000), L2[w0]=0x80008
+      • L1D[w0]=0x100000 (clean)
+33) S 0x10000000
+    - L1D write hit (w0). Mark DIRTY
+34) L 0x10000400
+    - L1D hit (w1)
+35) S 0x10000400
+    - L1D write hit (w1). Mark DIRTY
+
+Instruksjoner 36–41
+36) I 0x04000400 (L1I tag 0x40004; L2 0x20002)
+    - L1I hit (w1). Ingen L2-aksess
+37) I 0x04000800 (tag 0x40008; L2 0x20004)
+    - L1I miss → L2 read miss. Evict L2 w0(?) → L2[w0]=0x20004
+    - Evict L1I w0 → L1I[w0]=0x40008
+38) I 0x04000C00 (L2 0x20006)
+    - L1I miss → L2 read miss. Evict L2 w0(0x20004) → L2[w0]=0x20006
+    - Evict L1I w0(0x40008) → L1I[w0]=0x4000C
+39) I 0x04001000 (L2 0x20008)
+    - L1I miss → L2 read miss. Evict L2 w0(0x20006) → L2[w0]=0x20008
+    - Evict L1I w0(0x4000C) → L1I[w0]=0x40010
+40) I 0x04000000 (L2 0x20000)
+    - L1I miss → L2 read miss. Evict L2 w0(0x20008) → L2[w0]=0x20000
+    - Evict L1I w0(0x40010) → L1I[w0]=0x40000
+41) I 0x04000800 (L2 0x20004)
+    - L1I miss → L2 read miss. Evict L2 w0(0x20000) → L2[w0]=0x20004
+    - Evict L1I w0(0x40000) → L1I[w0]=0x40008
+
+Data 42–49
+42) L 0x10000000 (L2 0x80000)
+    - L1D hit (w0)
+43) L 0x10000400 (L2 0x80002)
+    - L1D hit (w1)
+44) L 0x10000800 (L2 0x80004)
+    - L1D miss → L2 read miss. Evict L2 w0(0x20004) → L2[w0]=0x80004
+    - Insert L1D: evict w0(0x100000 DIRTY) ⇒ WB til L2 (0x80000) = miss → L2 write_miss, evict L2 w0(0x80004), L2[w0]=0x80000
+      • L1D[w0]=0x100008 (clean)
+45) S 0x10000800
+    - L1D write hit (w0). Mark DIRTY
+46) L 0x10001000 (L2 0x80008)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80000) → L2[w0]=0x80008
+    - Insert L1D: evict w0(0x100008 DIRTY) ⇒ WB til L2 (0x80004) = miss → L2 write_miss, evict L2 w0(0x80008), L2[w0]=0x80004
+      • L1D[w0]=0x100010 (clean)
+47) S 0x10001000
+    - L1D write hit (w0). Mark DIRTY
+48) L 0x10000000 (L2 0x80000)
+    - L1D miss → L2 read miss. Evict L2 w0(0x80004) → L2[w0]=0x80000
+    - Insert L1D: evict w0(0x100010 DIRTY) ⇒ WB til L2 (0x80008) = miss → L2 write_miss, evict L2 w0(0x80000), L2[w0]=0x80008
+      • L1D[w0]=0x100000 (clean)
+49) S 0x10000800 (L2 0x80004)
+    - L1D write miss: Insert L1D (evict w0(0x100000 clean)) → L1D[w0]=0x100008 (mark DIRTY)
+    - L2 lookup 0x80004 = miss → L2 write_miss. Evict L2 w0(0x80008) → L2[w0]=0x80004
+
+Totalsummer (matcher programutskriften din):
+- L1I: Read_Hits=2, Read_Miss=12
+- L1D: Read_Hits=5, Read_Miss=16, Write_Hits=12, Write_Miss=2
+- L2:  Read_Hits=0, Read_Miss=28, Write_Hits=0, Write_Miss=13
+- Executed 49 instructions
+
+Hvorfor L2 ikke får hits:
+- Alt skjer i ett og samme sett (index 0) med 2 ways. Både instruksjons- og data-tag’er konkurrerer.
+- Replacement velger alltid way 0, så «ny» innsetting fortrenger det som nettopp ble lagt inn.
+- Når L1D evicter en dirty linje og skal skrive tilbake, er samme tag nettopp blitt kastet fra L2 av forrige innsetting → L2 write_miss hver gang.
+- Lesemønsteret gjenbesøker aldri en tag mens den fortsatt ligger i L2 (pga thrashing) → L2 read_hits=0.

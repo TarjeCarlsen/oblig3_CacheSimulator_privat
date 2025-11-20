@@ -97,26 +97,26 @@ Cache *L1I;
 Cache *L2;
 // ---------- Verdier må etterhvert endres til realistiske verdier, sjekk readme -------------- //
 // Dette vil bli bestemt av størrelsen på loggfilen. Antar at l1 skal være betydelig mindre enn fil størrelse
-#define L1I_size 2048 // 4kb
-#define L1I_associativity 4
+#define L1I_size 512 // 4kb
+#define L1I_associativity 2
 #define L1I_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L1I_replacement_policy RANDOM
+#define L1I_replacement_policy LRU
 #define L1I_line_size 64
 #define L1I_bus_width 64
 #define L1I_write_policy WRITE_BACK
 
-#define L1D_size 2048                       // 4kb
-#define L1D_associativity 4                 // set to 1 for testing direct mapping
+#define L1D_size 512                       // 4kb
+#define L1D_associativity 2                // set to 1 for testing direct mapping
 #define L1D_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L1D_replacement_policy RANDOM
+#define L1D_replacement_policy LRU
 #define L1D_line_size 64
 #define L1D_bus_width 64 
 #define L1D_write_policy WRITE_BACK
 
-#define L2_size 4096 // 4kb
-#define L2_associativity 4
+#define L2_size 1024 // 4kb
+#define L2_associativity 2
 #define L2_mapping SET_ASSOCIATIVE_MAPPING // set to 1 for testing direct mapping
-#define L2_replacement_policy RANDOM
+#define L2_replacement_policy LRU
 #define L2_line_size 64
 #define L2_bus_width 64
 #define L2_write_policy WRITE_BACK
