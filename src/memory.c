@@ -616,22 +616,26 @@ void memory_write(uint64_t address, data_t *data)
 
 void memory_finish(void)
 {
-  printf(" ------- FINISHED SIMULATION --------- \n");
-
+  printf(" ------- FINISHED SIMULATION --------- \n"); 
+  
   // L1D totals
   int L1D_read_total = L1D->hit_miss.read_hit + L1D->hit_miss.read_miss;
   int L1D_write_total = L1D->hit_miss.write_hit + L1D->hit_miss.write_miss;
   int L1D_total = L1D_read_total + L1D_write_total;
-
+  
   // L1I totals
   int L1I_read_total = L1I->hit_miss.read_hit + L1I->hit_miss.read_miss;
-
+  
   // L2 totals
   int L2_read_total = L2->hit_miss.read_hit + L2->hit_miss.read_miss;
   int L2_write_total = L2->hit_miss.write_hit + L2->hit_miss.write_miss;
   int L2_total = L2_read_total + L2_write_total;
-
+  
   // ----------- NEW percentages -----------
+  //Logic for calculating the hit rates to percentage 
+  //codeblock gotten from chatgpt for easy handling of converting the hitrates to percentages.
+  //It checks if the total is greater then 0 and then calculate the percentage with formula 100.0f * cache->hit_miss / L1D_read_total
+  //if its not greater then 0 the value is defaulted to 0.
   float L1D_read_hit_rate = (L1D_read_total > 0) ? 100.0f * L1D->hit_miss.read_hit / L1D_read_total : 0.0f;
   float L1D_write_hit_rate = (L1D_write_total > 0) ? 100.0f * L1D->hit_miss.write_hit / L1D_write_total : 0.0f;
 
